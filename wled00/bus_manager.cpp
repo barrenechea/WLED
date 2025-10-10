@@ -100,6 +100,53 @@ void Bus::calculateCCT(uint32_t c, uint8_t &ww, uint8_t &cw) {
   cw = (w * cw) / 255;
 }
 
+void Bus::calculateWWA(uint32_t c, uint8_t &a, uint8_t &ww, uint8_t &cw) {
+  unsigned cct = 0; //0 - full amber/warm, 255 - full cold white
+  unsigned w = W(c);
+
+  if (_cct > -1) {                                    // using RGB?
+    if (_cct >= 1900)    cct = (_cct - 1900) >> 5;    // convert K in relative format
+    else if (_cct < 256) cct = _cct;                  // already relative
+  } else {
+    cct = (approximateKelvinFromRGB(c) - 1900) >> 5;  // convert K (from RGB value) to relative format
+  }
+
+  if (cct > 255) cct = 255;
+
+  unsigned blendDenom = 255 - _cctBlend;
+  if (!blendDenom) blendDenom = 1;
+
+  if (cct < 128) {
+    unsigned rel = cct << 1;                          // map [0..127] to [0..255]
+    unsigned amberRatio;
+    unsigned warmRatio;
+
+    if (rel < _cctBlend) amberRatio = 255;
+    else amberRatio = ((255 - rel) * 255) / blendDenom;
+
+    if ((255 - rel) < _cctBlend) warmRatio = 255;
+    else warmRatio = (rel * 255) / blendDenom;
+
+    a  = (w * amberRatio) / 255;
+    ww = (w * warmRatio)  / 255;
+    cw = 0;
+  } else {
+    unsigned rel = (cct - 128) << 1;                  // map [128..255] to [0..255]
+    unsigned warmRatio;
+    unsigned coldRatio;
+
+    if (rel < _cctBlend) warmRatio = 255;
+    else warmRatio = ((255 - rel) * 255) / blendDenom;
+
+    if ((255 - rel) < _cctBlend) coldRatio = 255;
+    else coldRatio = (rel * 255) / blendDenom;
+
+    a  = 0;
+    ww = (w * warmRatio) / 255;
+    cw = (w * coldRatio) / 255;
+  }
+}
+
 uint32_t Bus::autoWhiteCalc(uint32_t c) const {
   unsigned aWM = _autoWhiteMode;
   if (_gAWM < AW_GLOBAL_DISABLED) aWM = _gAWM;
@@ -276,11 +323,14 @@ void IRAM_ATTR BusDigital::setPixelColor(unsigned pix, uint32_t c) {
     }
   }
   uint16_t wwcw = 0;
-  if (hasCCT()) {
+  if (_type == TYPE_WS2812_WWA) {
+    uint8_t amber = 0, warm = 0, cold = 0;
+    Bus::calculateWWA(c, amber, warm, cold);
+    c = RGBW32(amber, warm, cold, W(c));
+  } else if (hasCCT()) {
     uint8_t cctWW = 0, cctCW = 0;
     Bus::calculateCCT(c, cctWW, cctCW);
     wwcw = (cctCW<<8) | cctWW;
-    if (_type == TYPE_WS2812_WWA) c = RGBW32(cctWW, cctCW, 0, W(c));
   }
   PolyBus::setPixelColor(_busPtr, _iType, pix, c, co, wwcw);
 }
@@ -303,7 +353,7 @@ uint32_t IRAM_ATTR BusDigital::getPixelColor(unsigned pix) const {
     }
   }
   if (_type == TYPE_WS2812_WWA) {
-    uint8_t w = R(c) | G(c);
+    uint8_t w = R(c) | G(c) | B(c);
     c = RGBW32(w, w, 0, w);
   }
   return c;
@@ -342,7 +392,7 @@ std::vector<LEDType> BusDigital::getLEDTypes() {
     {TYPE_SM16825,       "D",  PSTR("SM16825 RGBCW")},
     {TYPE_WS2812_1CH_X3, "D",  PSTR("WS2811 White")},
     //{TYPE_WS2812_2CH_X3, "D",  PSTR("WS281x CCT")}, // not implemented
-    {TYPE_WS2812_WWA,    "D",  PSTR("WS281x WWA")}, // amber ignored
+    {TYPE_WS2812_WWA,    "D",  PSTR("WS281x WWA")},
     {TYPE_WS2801,        "2P", PSTR("WS2801")},
     {TYPE_APA102,        "2P", PSTR("APA102")},
     {TYPE_LPD8806,       "2P", PSTR("LPD8806")},

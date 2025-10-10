@@ -209,6 +209,7 @@ class Bus {
       #endif
     }
     static void calculateCCT(uint32_t c, uint8_t &ww, uint8_t &cw);
+    static void calculateWWA(uint32_t c, uint8_t &a, uint8_t &ww, uint8_t &cw);
 
   protected:
     uint8_t  _type;
